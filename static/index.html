@@ -38,13 +38,13 @@
       </div>
     </header>
     <div id="terminal"></div>
-    <footer><span>Debian 13 • Browser PTY</span><span id="details">—</span></footer>
+    <footer><span>Debian 13 • Temporary browser PTY • Reconnect starts a new shell</span><span id="details">—</span></footer>
   </div>
 
   <div id="login" class="login">
     <form id="loginForm" class="login-box">
       <h1>Console authentication</h1>
-      <p>Enter the <code>CONSOLE_TOKEN</code> configured in your Render service.</p>
+      <p>Enter the <code>CONSOLE_TOKEN</code> configured in your Vercel project.</p>
       <input id="token" type="password" autocomplete="current-password" placeholder="Console token" required />
       <button type="submit" style="width:100%">Connect to Debian 13</button>
       <div id="error" class="error"></div>
@@ -93,14 +93,14 @@
           setStatus(true, 'Connected');
           term.write(msg.message || '');
           term.focus();
-          details.textContent = 'PTY active';
+          details.textContent = 'PTY active • session up to 4½ minutes';
         } else if (msg.type === 'output') {
           term.write(msg.data || '');
         }
       };
       socket.onclose = (event) => {
         setStatus(false, 'Disconnected');
-        details.textContent = event.code === 1008 ? 'Authentication failed' : 'Connection closed';
+        details.textContent = event.code === 1008 ? 'Authentication failed' : (event.reason || 'Connection closed — click Reconnect for a new shell');
         if (event.code === 1008) {
           sessionStorage.removeItem('hypervm_console_token');
           token = '';

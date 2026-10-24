@@ -6,6 +6,7 @@ import pty
 import select
 import shutil
 import signal
+import secrets
 import struct
 import termios
 from pathlib import Path
@@ -18,12 +19,12 @@ BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
 CONSOLE_TOKEN = os.environ.get("CONSOLE_TOKEN", "")
 
-app = FastAPI(title="HyperVM Render Console")
+app = FastAPI(title="HyperVM Console")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
 def safe_token(candidate: str) -> bool:
-    return bool(CONSOLE_TOKEN) and candidate == CONSOLE_TOKEN
+    return bool(CONSOLE_TOKEN) and secrets.compare_digest(candidate.encode("utf-8"), CONSOLE_TOKEN.encode("utf-8"))
 
 
 def set_winsize(fd: int, rows: int, cols: int) -> None:
@@ -37,8 +38,11 @@ def child_shell() -> None:
     os.environ.setdefault("TERM", "xterm-256color")
     os.environ.setdefault("LANG", "C.UTF-8")
     os.environ["PS1"] = "\\[\\e[1;32m\\]root@hypervm\\[\\e[0m\\]:\\w# "
-    os.environ["HOME"] = "/root"
-    os.chdir("/root")
+    home = os.environ.get("CONSOLE_HOME", "/tmp/hypervm")
+    os.makedirs(home, exist_ok=True)
+    os.environ["HOME"] = home
+    os.environ.pop("CONSOLE_TOKEN", None)
+    os.chdir(home)
     os.execv("/bin/bash", ["/bin/bash", "--login"])
 
 
@@ -55,6 +59,7 @@ def status() -> JSONResponse:
         "hostname": os.uname().nodename,
         "shell": "/bin/bash",
         "systemctl": shutil.which("systemctl") is not None,
+        "session_max_seconds": int(os.environ.get("SESSION_MAX_SECONDS", "0")),
     })
 
 
@@ -74,12 +79,20 @@ async def terminal(websocket: WebSocket) -> None:
         await websocket.close(code=1008, reason="Invalid authentication payload")
         return
 
+    if not isinstance(auth_data, dict):
+        await websocket.close(code=1008, reason="Invalid authentication payload")
+        return
+
     if not safe_token(str(auth_data.get("token", ""))):
         await websocket.close(code=1008, reason="Invalid console token")
         return
 
-    rows = int(auth_data.get("rows", 30) or 30)
-    cols = int(auth_data.get("cols", 120) or 120)
+    try:
+        rows = int(auth_data.get("rows", 30) or 30)
+        cols = int(auth_data.get("cols", 120) or 120)
+    except (TypeError, ValueError):
+        await websocket.close(code=1008, reason="Invalid terminal dimensions")
+        return
 
     pid, fd = pty.fork()
     if pid == 0:
@@ -140,9 +153,18 @@ async def terminal(websocket: WebSocket) -> None:
 
         sender = asyncio.create_task(browser_to_pty())
         receiver = asyncio.create_task(pty_to_browser())
-        done, pending = await asyncio.wait({sender, receiver}, return_when=asyncio.FIRST_COMPLETED)
+        limit = int(os.environ.get("SESSION_MAX_SECONDS", "0"))
+        done, pending = await asyncio.wait(
+            {sender, receiver},
+            timeout=limit if limit > 0 else None,
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        expired = not done
         for task in pending:
             task.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
+        if expired:
+            await websocket.close(code=1000, reason="Session limit reached; reconnect for a new shell")
         for task in done:
             try:
                 task.result()

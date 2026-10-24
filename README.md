@@ -1,26 +1,33 @@
-# Made by hyperNET. Debian 13 Render Console
+# HyperVM Console on Vercel
 
-This project runs a Debian 13 container on Render and exposes an authenticated browser terminal backed by a real PTY and `/bin/bash`.
+A Debian 13 browser terminal with a real bash PTY, protected by a console token.
 
-## Render settings
+## Vercel deployment
 
-Create a **Web Service** and choose **Docker**. Render will build the included `Dockerfile`.
+Import this repository into Vercel with Framework Preset **Other**. Vercel detects
+`Dockerfile.vercel` and builds the container. No custom build or install command
+is required. Enable Fluid Compute.
 
-Set an Environment Variable / Secret:
+Set the following environment variables in the Vercel project before deploying:
 
-- `CONSOLE_TOKEN` = a long random secret
+- `CONSOLE_TOKEN`: a randomly generated secret of at least 32 characters.
+- `PORT`: `80` (the Vercel container runtime default).
 
-Render automatically supplies `PORT`; do not hard-code a public port in the Render dashboard.
+Open the deployment and enter your console token. Vercel Deployment Protection
+may also require signing into the owner account.
 
-## Local test
+## Session and storage limits
 
-```bash
-docker build -t hypervm-console .
-docker run --rm -p 10000:10000 -e CONSOLE_TOKEN='replace-with-a-long-secret' hypervm-console
-```
+This is a temporary terminal, not a persistent VPS. Vercel applies function
+duration and scaling limits. This app closes terminal sessions after 270 seconds,
+within the 300-second Hobby limit; click **Reconnect** to start a new shell.
+The writable home is `/tmp/hypervm`. Files and installed packages are not durable
+across scaling, replacement, or redeployment. A reconnect may use another instance.
+Background agents and always-on servers cannot be relied on to keep running.
+Systemd, host/kernel operations, nested virtualization, and privileged VPS behavior
+are not provided by this deployment.
 
-Then open `http://localhost:10000`.
+## Other Docker environments
 
-## Important limitation
-
-The browser terminal is a shell inside the Render container. It is not equivalent to a privileged VPS. Host/kernel operations, nested Docker/LXC, KVM, and unrestricted systemd behavior are outside what a normal Render container provides.
+The original `Dockerfile` remains usable. Set a strong `CONSOLE_TOKEN` and publish
+port 10000. `SESSION_MAX_SECONDS=0` disables the app's session timer locally.
